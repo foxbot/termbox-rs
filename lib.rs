@@ -6,8 +6,6 @@
 #![crate_name="termbox"]
 #![crate_type="lib"]
 
-#![feature(struct_variant)]
-
 extern crate libc;
 
 use std::default::Default;
@@ -53,15 +51,8 @@ impl Default for Cell {
 
 
 pub enum Event {
-  KeyEvent {
-    pub mods: Mods,
-    pub key: u16,
-    pub ch: char,
-  },
-  ResizeEvent {
-    pub w: i32,
-    pub h: i32,
-  },
+  KeyEvent(KeySym),
+  ResizeEvent(i32, i32),
 }
 
 
@@ -91,6 +82,18 @@ impl InputMode {
       InputAlt => ffi::TB_INPUT_ALT,
     }
   }
+}
+
+
+//
+// KeySum
+//
+
+
+pub struct KeySym {
+  pub mods: Mods,
+  pub key:  u16,
+  pub ch:   char,
 }
 
 
@@ -406,6 +409,7 @@ pub mod ffi {
     Event,
     Mods,
     KeyEvent,
+    KeySym,
     ResizeEvent,
   };
 
@@ -427,15 +431,12 @@ pub mod ffi {
   impl tb_event {
     pub fn to_safe_event (&self) -> Option<Event> {
       match self.kind {
-        TB_EVENT_KEY => Some(KeyEvent {
+        TB_EVENT_KEY => Some(KeyEvent(KeySym {
           mods: match Mods::from_bits(self.mods) { Some(mods) => mods, None => Mods::empty() },
           key: self.key,
           ch: match std::char::from_u32(self.ch) { Some(ch) => ch, None => 0 as char },
-        }),
-        TB_EVENT_RESIZE => Some(ResizeEvent {
-          w: self.w,
-          h: self.h,
-        }),
+        })),
+        TB_EVENT_RESIZE => Some(ResizeEvent(self.w, self.h)),
         _ => None
       }
     }
