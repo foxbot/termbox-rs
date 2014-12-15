@@ -9,7 +9,7 @@
 extern crate libc;
 
 use std::default::Default;
-use std::sync::atomics::{
+use std::sync::atomic::{
   AtomicBool,
   SeqCst,
   INIT_ATOMIC_BOOL,
@@ -34,6 +34,9 @@ pub struct Cell {
   pub bg: u16,
 }
 
+impl Copy for Cell {
+}
+
 impl Default for Cell {
   fn default () -> Cell {
     Cell {
@@ -51,8 +54,11 @@ impl Default for Cell {
 
 
 pub enum Event {
-  KeyEvent(KeySym),
-  ResizeEvent(i32, i32),
+  Key(KeySym),
+  Resize(i32, i32),
+}
+
+impl Copy for Event {
 }
 
 
@@ -63,25 +69,28 @@ pub enum Event {
 
 #[deriving(Eq, PartialEq)]
 pub enum InputMode {
-  InputEsc,
-  InputAlt,
+  Esc,
+  Alt,
 }
 
 impl InputMode {
   pub fn from_c_int (mode: c_int) -> Option<InputMode> {
     match mode {
-      ffi::TB_INPUT_ESC => Some(InputEsc),
-      ffi::TB_INPUT_ALT => Some(InputAlt),
+      ffi::TB_INPUT_ESC => Some(InputMode::Esc),
+      ffi::TB_INPUT_ALT => Some(InputMode::Alt),
       _ => None
     }
   }
 
   pub fn to_c_int (self) -> c_int {
     match self {
-      InputEsc => ffi::TB_INPUT_ESC,
-      InputAlt => ffi::TB_INPUT_ALT,
+      InputMode::Esc => ffi::TB_INPUT_ESC,
+      InputMode::Alt => ffi::TB_INPUT_ALT,
     }
   }
+}
+
+impl Copy for InputMode {
 }
 
 
@@ -92,8 +101,11 @@ impl InputMode {
 
 pub struct KeySym {
   pub mods: Mods,
-  pub key:  u16,
-  pub ch:   char,
+  pub key: u16,
+  pub ch: char,
+}
+
+impl Copy for KeySym {
 }
 
 
@@ -104,8 +116,11 @@ pub struct KeySym {
 
 bitflags! {
   flags Mods: u8 {
-    static MOD_ALT = 0x01,
+    const MOD_ALT = 0x01,
   }
+}
+
+impl Copy for Mods {
 }
 
 
@@ -116,31 +131,34 @@ bitflags! {
 
 #[deriving(Eq, PartialEq)]
 pub enum OutputMode {
-  OutputNormal,
-  Output256,
-  Output216,
-  OutputGrayscale,
+  Normal,
+  C256,
+  C216,
+  Grayscale,
 }
 
 impl OutputMode {
   pub fn from_c_int (mode: c_int) -> Option<OutputMode> {
     match mode {
-      ffi::TB_OUTPUT_NORMAL => Some(OutputNormal),
-      ffi::TB_OUTPUT_256 => Some(Output256),
-      ffi::TB_OUTPUT_216 => Some(Output216),
-      ffi::TB_OUTPUT_GRAYSCALE => Some(OutputGrayscale),
+      ffi::TB_OUTPUT_NORMAL => Some(OutputMode::Normal),
+      ffi::TB_OUTPUT_256 => Some(OutputMode::C256),
+      ffi::TB_OUTPUT_216 => Some(OutputMode::C216),
+      ffi::TB_OUTPUT_GRAYSCALE => Some(OutputMode::Grayscale),
       _ => None
     }
   }
 
   pub fn to_c_int (self) -> c_int {
     match self {
-      OutputNormal => ffi::TB_OUTPUT_NORMAL,
-      Output256 => ffi::TB_OUTPUT_256,
-      Output216 => ffi::TB_OUTPUT_216,
-      OutputGrayscale => ffi::TB_OUTPUT_GRAYSCALE,
+      OutputMode::Normal => ffi::TB_OUTPUT_NORMAL,
+      OutputMode::C256 => ffi::TB_OUTPUT_256,
+      OutputMode::C216 => ffi::TB_OUTPUT_216,
+      OutputMode::Grayscale => ffi::TB_OUTPUT_GRAYSCALE,
     }
   }
+}
+
+impl Copy for OutputMode {
 }
 
 
@@ -173,17 +191,17 @@ impl Termbox {
       let max_x = std::cmp::min(x + w, buffer_width) - x;
       let max_y = std::cmp::min(y + h, buffer_height) - y;
       // blit
-      std::slice::raw::mut_buf_as_slice(ffi::tb_cell_buffer(), (buffer_width * buffer_height) as uint, |dst| {
-        for cy in std::iter::range(min_y, max_y) {
-          let mut src_index = (cy * w + min_x) as uint;
-          let mut dst_index = ((y + cy) * buffer_width + x + min_x) as uint;
-          for _ in std::iter::range(min_x, max_x) {
-            dst[dst_index] = cells[src_index];
-            src_index += 1;
-            dst_index += 1;
-          }
+      let dst_ptr = ffi::tb_cell_buffer();
+      let dst = std::slice::from_raw_mut_buf(&dst_ptr, (buffer_width * buffer_height) as uint);
+      for cy in std::iter::range(min_y, max_y) {
+        let mut src_index = (cy * w + min_x) as uint;
+        let mut dst_index = ((y + cy) * buffer_width + x + min_x) as uint;
+        for _ in std::iter::range(min_x, max_x) {
+          dst[dst_index] = cells[src_index];
+          src_index += 1;
+          dst_index += 1;
         }
-      });
+      }
     }
   }
 
@@ -291,7 +309,7 @@ impl Termbox {
         let mut event = Default::default();
         let result = ffi::tb_peek_event(&mut event, timeout as c_int);
         if result < 0 {
-          fail!("tb_peek_event returned {}", result);
+          panic!("tb_peek_event returned {}", result);
         } else if result == 0 {
           return None;
         } else {
@@ -300,7 +318,7 @@ impl Termbox {
               return Some(event);
             },
             None => {
-              fail!("invalid event");
+              panic!("invalid event");
             },
           }
         }
@@ -316,19 +334,19 @@ impl Termbox {
         let mut event = Default::default();
         let result = ffi::tb_poll_event(&mut event);
         if result <= 0 {
-          fail!("tb_poll_event returned {}", result);
+          panic!("tb_poll_event returned {}", result);
         } else {
           match event.to_safe_event() {
             Some(event) => {
               return event;
             },
             None => {
-              fail!("invalid event");
+              panic!("invalid event");
             },
           }
         }
       } else {
-        fail!("Termbox is closed");
+        panic!("Termbox is closed");
       }
     }
   }
@@ -408,14 +426,12 @@ pub mod ffi {
     Cell,
     Event,
     Mods,
-    KeyEvent,
     KeySym,
-    ResizeEvent,
   };
 
   // event kinds
-  pub static TB_EVENT_KEY:    u8 = 1;
-  pub static TB_EVENT_RESIZE: u8 = 2;
+  pub const TB_EVENT_KEY:    u8 = 1;
+  pub const TB_EVENT_RESIZE: u8 = 2;
 
   // event struct
   #[repr(C)]
@@ -431,15 +447,18 @@ pub mod ffi {
   impl tb_event {
     pub fn to_safe_event (&self) -> Option<Event> {
       match self.kind {
-        TB_EVENT_KEY => Some(KeyEvent(KeySym {
+        TB_EVENT_KEY => Some(Event::Key(KeySym {
           mods: match Mods::from_bits(self.mods) { Some(mods) => mods, None => Mods::empty() },
           key: self.key,
           ch: match std::char::from_u32(self.ch) { Some(ch) => ch, None => 0 as char },
         })),
-        TB_EVENT_RESIZE => Some(ResizeEvent(self.w, self.h)),
+        TB_EVENT_RESIZE => Some(Event::Resize(self.w, self.h)),
         _ => None
       }
     }
+  }
+
+  impl Copy for tb_event {
   }
 
   impl Default for tb_event {
@@ -456,21 +475,21 @@ pub mod ffi {
   }
 
   // init results
-  pub static TB_EUNSUPPORTED_TERMINAL: c_int = -1;
-  pub static TB_EFAILED_TO_OPEN_TTY:   c_int = -2;
-  pub static TB_EPIPE_TRAP_ERROR:      c_int = -3;
+  pub const TB_EUNSUPPORTED_TERMINAL: c_int = -1;
+  pub const TB_EFAILED_TO_OPEN_TTY:   c_int = -2;
+  pub const TB_EPIPE_TRAP_ERROR:      c_int = -3;
 
   // input modes
-  pub static TB_INPUT_CURRENT: c_int = 0;
-  pub static TB_INPUT_ESC:     c_int = 1;
-  pub static TB_INPUT_ALT:     c_int = 2;
+  pub const TB_INPUT_CURRENT: c_int = 0;
+  pub const TB_INPUT_ESC:     c_int = 1;
+  pub const TB_INPUT_ALT:     c_int = 2;
 
   // output modes
-  pub static TB_OUTPUT_CURRENT:   c_int = 0;
-  pub static TB_OUTPUT_NORMAL:    c_int = 1;
-  pub static TB_OUTPUT_256:       c_int = 2;
-  pub static TB_OUTPUT_216:       c_int = 3;
-  pub static TB_OUTPUT_GRAYSCALE: c_int = 4;
+  pub const TB_OUTPUT_CURRENT:   c_int = 0;
+  pub const TB_OUTPUT_NORMAL:    c_int = 1;
+  pub const TB_OUTPUT_256:       c_int = 2;
+  pub const TB_OUTPUT_216:       c_int = 3;
+  pub const TB_OUTPUT_GRAYSCALE: c_int = 4;
 
   // functions
   #[link(name="termbox")]
@@ -501,86 +520,86 @@ pub mod ffi {
 
 
 // attributes
-pub static DEFAULT: u16 = 0x00;
-pub static BLACK: u16 = 0x01;
-pub static RED: u16 = 0x02;
-pub static GREEN: u16 = 0x03;
-pub static YELLOW: u16 = 0x04;
-pub static BLUE: u16 = 0x05;
-pub static MAGENTA: u16 = 0x06;
-pub static CYAN: u16 = 0x07;
-pub static WHITE: u16 = 0x08;
+pub const DEFAULT: u16 = 0x00;
+pub const BLACK: u16 = 0x01;
+pub const RED: u16 = 0x02;
+pub const GREEN: u16 = 0x03;
+pub const YELLOW: u16 = 0x04;
+pub const BLUE: u16 = 0x05;
+pub const MAGENTA: u16 = 0x06;
+pub const CYAN: u16 = 0x07;
+pub const WHITE: u16 = 0x08;
 
-pub static BOLD: u16 = 0x0100;
-pub static UNDERLINE: u16 = 0x0200;
-pub static REVERSE: u16 = 0x0400;
+pub const BOLD: u16 = 0x0100;
+pub const UNDERLINE: u16 = 0x0200;
+pub const REVERSE: u16 = 0x0400;
 
 // keys
-pub static KEY_CTRL_TILDE: u16 = 0x00;
-pub static KEY_CTRL_2: u16 = 0x00;
-pub static KEY_CTRL_A: u16 = 0x01;
-pub static KEY_CTRL_B: u16 = 0x02;
-pub static KEY_CTRL_C: u16 = 0x03;
-pub static KEY_CTRL_D: u16 = 0x04;
-pub static KEY_CTRL_E: u16 = 0x05;
-pub static KEY_CTRL_F: u16 = 0x06;
-pub static KEY_CTRL_G: u16 = 0x07;
-pub static KEY_BACKSPACE: u16 = 0x08;
-pub static KEY_CTRL_H: u16 = 0x08;
-pub static KEY_TAB: u16 = 0x09;
-pub static KEY_CTRL_I: u16 = 0x09;
-pub static KEY_CTRL_J: u16 = 0x0a;
-pub static KEY_CTRL_K: u16 = 0x0b;
-pub static KEY_CTRL_L: u16 = 0x0c;
-pub static KEY_ENTER: u16 = 0x0d;
-pub static KEY_CTRL_M: u16 = 0x0d;
-pub static KEY_CTRL_N: u16 = 0x0e;
-pub static KEY_CTRL_O: u16 = 0x0f;
-pub static KEY_CTRL_P: u16 = 0x10;
-pub static KEY_CTRL_Q: u16 = 0x11;
-pub static KEY_CTRL_R: u16 = 0x12;
-pub static KEY_CTRL_S: u16 = 0x13;
-pub static KEY_CTRL_T: u16 = 0x14;
-pub static KEY_CTRL_U: u16 = 0x15;
-pub static KEY_CTRL_V: u16 = 0x16;
-pub static KEY_CTRL_W: u16 = 0x17;
-pub static KEY_CTRL_X: u16 = 0x18;
-pub static KEY_CTRL_Y: u16 = 0x19;
-pub static KEY_CTRL_Z: u16 = 0x1a;
-pub static KEY_ESC: u16 = 0x1b;
-pub static KEY_CTRL_LSQ_BRACKET: u16 = 0x1b;
-pub static KEY_CTRL_3: u16 = 0x1b;
-pub static KEY_CTRL_4: u16 = 0x1c;
-pub static KEY_CTRL_BACKSLASH: u16 = 0x1c;
-pub static KEY_CTRL_5: u16 = 0x1d;
-pub static KEY_CTRL_RSQ_BRACKET: u16 = 0x1d;
-pub static KEY_CTRL_6: u16 = 0x1e;
-pub static KEY_CTRL_7: u16 = 0x1f;
-pub static KEY_CTRL_SLASH: u16 = 0x1f;
-pub static KEY_CTRL_UNDERSCORE: u16 = 0x1f;
-pub static KEY_SPACE: u16 = 0x20;
-pub static KEY_BACKSPACE2: u16 = 0x7f;
-pub static KEY_CTRL_8: u16 = 0x7f;
+pub const KEY_CTRL_TILDE: u16 = 0x00;
+pub const KEY_CTRL_2: u16 = 0x00;
+pub const KEY_CTRL_A: u16 = 0x01;
+pub const KEY_CTRL_B: u16 = 0x02;
+pub const KEY_CTRL_C: u16 = 0x03;
+pub const KEY_CTRL_D: u16 = 0x04;
+pub const KEY_CTRL_E: u16 = 0x05;
+pub const KEY_CTRL_F: u16 = 0x06;
+pub const KEY_CTRL_G: u16 = 0x07;
+pub const KEY_BACKSPACE: u16 = 0x08;
+pub const KEY_CTRL_H: u16 = 0x08;
+pub const KEY_TAB: u16 = 0x09;
+pub const KEY_CTRL_I: u16 = 0x09;
+pub const KEY_CTRL_J: u16 = 0x0a;
+pub const KEY_CTRL_K: u16 = 0x0b;
+pub const KEY_CTRL_L: u16 = 0x0c;
+pub const KEY_ENTER: u16 = 0x0d;
+pub const KEY_CTRL_M: u16 = 0x0d;
+pub const KEY_CTRL_N: u16 = 0x0e;
+pub const KEY_CTRL_O: u16 = 0x0f;
+pub const KEY_CTRL_P: u16 = 0x10;
+pub const KEY_CTRL_Q: u16 = 0x11;
+pub const KEY_CTRL_R: u16 = 0x12;
+pub const KEY_CTRL_S: u16 = 0x13;
+pub const KEY_CTRL_T: u16 = 0x14;
+pub const KEY_CTRL_U: u16 = 0x15;
+pub const KEY_CTRL_V: u16 = 0x16;
+pub const KEY_CTRL_W: u16 = 0x17;
+pub const KEY_CTRL_X: u16 = 0x18;
+pub const KEY_CTRL_Y: u16 = 0x19;
+pub const KEY_CTRL_Z: u16 = 0x1a;
+pub const KEY_ESC: u16 = 0x1b;
+pub const KEY_CTRL_LSQ_BRACKET: u16 = 0x1b;
+pub const KEY_CTRL_3: u16 = 0x1b;
+pub const KEY_CTRL_4: u16 = 0x1c;
+pub const KEY_CTRL_BACKSLASH: u16 = 0x1c;
+pub const KEY_CTRL_5: u16 = 0x1d;
+pub const KEY_CTRL_RSQ_BRACKET: u16 = 0x1d;
+pub const KEY_CTRL_6: u16 = 0x1e;
+pub const KEY_CTRL_7: u16 = 0x1f;
+pub const KEY_CTRL_SLASH: u16 = 0x1f;
+pub const KEY_CTRL_UNDERSCORE: u16 = 0x1f;
+pub const KEY_SPACE: u16 = 0x20;
+pub const KEY_BACKSPACE2: u16 = 0x7f;
+pub const KEY_CTRL_8: u16 = 0x7f;
 
-pub static KEY_F1: u16 = 0xffff - 0;
-pub static KEY_F2: u16 = 0xffff - 1;
-pub static KEY_F3: u16 = 0xffff - 2;
-pub static KEY_F4: u16 = 0xffff - 3;
-pub static KEY_F5: u16 = 0xffff - 4;
-pub static KEY_F6: u16 = 0xffff - 5;
-pub static KEY_F7: u16 = 0xffff - 6;
-pub static KEY_F8: u16 = 0xffff - 7;
-pub static KEY_F9: u16 = 0xffff - 8;
-pub static KEY_F10: u16 = 0xffff - 9;
-pub static KEY_F11: u16 = 0xffff - 10;
-pub static KEY_F12: u16 = 0xffff - 11;
-pub static KEY_INSERT: u16 = 0xffff - 12;
-pub static KEY_DELETE: u16 = 0xffff - 13;
-pub static KEY_HOME: u16 = 0xffff - 14;
-pub static KEY_END: u16 = 0xffff - 15;
-pub static KEY_PGUP: u16 = 0xffff - 16;
-pub static KEY_PGDN: u16 = 0xffff - 17;
-pub static KEY_ARROW_UP: u16 = 0xffff - 18;
-pub static KEY_ARROW_DOWN: u16 = 0xffff - 19;
-pub static KEY_ARROW_LEFT: u16 = 0xffff - 20;
-pub static KEY_ARROW_RIGHT: u16 = 0xffff - 21;
+pub const KEY_F1: u16 = 0xffff - 0;
+pub const KEY_F2: u16 = 0xffff - 1;
+pub const KEY_F3: u16 = 0xffff - 2;
+pub const KEY_F4: u16 = 0xffff - 3;
+pub const KEY_F5: u16 = 0xffff - 4;
+pub const KEY_F6: u16 = 0xffff - 5;
+pub const KEY_F7: u16 = 0xffff - 6;
+pub const KEY_F8: u16 = 0xffff - 7;
+pub const KEY_F9: u16 = 0xffff - 8;
+pub const KEY_F10: u16 = 0xffff - 9;
+pub const KEY_F11: u16 = 0xffff - 10;
+pub const KEY_F12: u16 = 0xffff - 11;
+pub const KEY_INSERT: u16 = 0xffff - 12;
+pub const KEY_DELETE: u16 = 0xffff - 13;
+pub const KEY_HOME: u16 = 0xffff - 14;
+pub const KEY_END: u16 = 0xffff - 15;
+pub const KEY_PGUP: u16 = 0xffff - 16;
+pub const KEY_PGDN: u16 = 0xffff - 17;
+pub const KEY_ARROW_UP: u16 = 0xffff - 18;
+pub const KEY_ARROW_DOWN: u16 = 0xffff - 19;
+pub const KEY_ARROW_LEFT: u16 = 0xffff - 20;
+pub const KEY_ARROW_RIGHT: u16 = 0xffff - 21;
