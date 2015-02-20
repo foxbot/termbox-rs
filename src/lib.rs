@@ -6,20 +6,38 @@
 #![crate_name="termbox"]
 #![crate_type="lib"]
 
+#![feature(core)]
+#![feature(hash)]
+
+#[macro_use]
+extern crate bitflags;
 extern crate libc;
 
-use std::default::Default;
+use std::cmp::min;
+use std::fmt::{
+  Display,
+  Formatter,
+};
+use std::mem::zeroed;
+use std::slice::{
+  from_raw_parts,
+  from_raw_parts_mut,
+};
 use std::sync::atomic::{
   AtomicBool,
-  SeqCst,
-  INIT_ATOMIC_BOOL,
+  Ordering,
+  ATOMIC_BOOL_INIT,
 };
 use libc::c_int;
 
-// globals :((((((
-static mut _is_open: AtomicBool = INIT_ATOMIC_BOOL;
+#[allow(dead_code)]
+mod ffi;
 
-// TODO: When rust 0.13 is released, add get_cell_buffer and get_cell_buffer_mut.
+// global lock state
+static mut _is_open: AtomicBool = ATOMIC_BOOL_INIT;
+
+// public types
+pub type Result<T> = std::result::Result<T, Error>;
 
 
 //
@@ -27,6 +45,7 @@ static mut _is_open: AtomicBool = INIT_ATOMIC_BOOL;
 //
 
 
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 #[repr(C)]
 pub struct Cell {
   pub ch: char,
@@ -34,16 +53,46 @@ pub struct Cell {
   pub bg: u16,
 }
 
-impl Copy for Cell {
+
+//
+// Error
+//
+
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub enum Error {
+  FailedToOpenTty,
+  PipeTrapError,
+  PollFailed,
+  TerminalLocked,
+  Timeout,
+  UnknownEvent,
+  UnknownInitializationFailure,
+  UnknownInputMode,
+  UnknownOutputMode,
+  UnsupportedTerminal,
 }
 
-impl Default for Cell {
-  fn default () -> Cell {
-    Cell {
-      ch: 0 as char,
-      fg: 0,
-      bg: 0,
+impl Error {
+  pub fn as_str (self) -> &'static str {
+    match self {
+      Error::FailedToOpenTty => "failed to open tty",
+      Error::PipeTrapError => "pipe trap error",
+      Error::PollFailed => "poll failed",
+      Error::TerminalLocked => "terminal locked",
+      Error::Timeout => "timeout",
+      Error::UnknownEvent => "unknown event",
+      Error::UnknownInitializationFailure => "unknown initialization failure",
+      Error::UnknownInputMode => "unknown input mode",
+      Error::UnknownOutputMode => "unknown output mode",
+      Error::UnsupportedTerminal => "unsupported terminal",
     }
+  }
+}
+
+impl Display for Error {
+  fn fmt (&self, f: &mut Formatter) -> std::result::Result<(), std::fmt::Error> {
+    self.as_str().fmt(f)
   }
 }
 
@@ -53,12 +102,10 @@ impl Default for Cell {
 //
 
 
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum Event {
   Key(KeySym),
   Resize(i32, i32),
-}
-
-impl Copy for Event {
 }
 
 
@@ -67,14 +114,14 @@ impl Copy for Event {
 //
 
 
-#[deriving(Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum InputMode {
   Esc,
   Alt,
 }
 
 impl InputMode {
-  pub fn from_c_int (mode: c_int) -> Option<InputMode> {
+  fn from_c_int (mode: c_int) -> Option<InputMode> {
     match mode {
       ffi::TB_INPUT_ESC => Some(InputMode::Esc),
       ffi::TB_INPUT_ALT => Some(InputMode::Alt),
@@ -82,15 +129,12 @@ impl InputMode {
     }
   }
 
-  pub fn to_c_int (self) -> c_int {
+  fn to_c_int (self) -> c_int {
     match self {
       InputMode::Esc => ffi::TB_INPUT_ESC,
       InputMode::Alt => ffi::TB_INPUT_ALT,
     }
   }
-}
-
-impl Copy for InputMode {
 }
 
 
@@ -99,13 +143,11 @@ impl Copy for InputMode {
 //
 
 
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct KeySym {
   pub mods: Mods,
   pub key: u16,
   pub ch: char,
-}
-
-impl Copy for KeySym {
 }
 
 
@@ -120,45 +162,39 @@ bitflags! {
   }
 }
 
-impl Copy for Mods {
-}
-
 
 //
 // OutputMode
 //
 
 
-#[deriving(Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum OutputMode {
   Normal,
-  C256,
-  C216,
+  Color256,
+  Color216,
   Grayscale,
 }
 
 impl OutputMode {
-  pub fn from_c_int (mode: c_int) -> Option<OutputMode> {
+  fn from_c_int (mode: c_int) -> Option<OutputMode> {
     match mode {
       ffi::TB_OUTPUT_NORMAL => Some(OutputMode::Normal),
-      ffi::TB_OUTPUT_256 => Some(OutputMode::C256),
-      ffi::TB_OUTPUT_216 => Some(OutputMode::C216),
+      ffi::TB_OUTPUT_256 => Some(OutputMode::Color256),
+      ffi::TB_OUTPUT_216 => Some(OutputMode::Color216),
       ffi::TB_OUTPUT_GRAYSCALE => Some(OutputMode::Grayscale),
       _ => None
     }
   }
 
-  pub fn to_c_int (self) -> c_int {
+  fn to_c_int (self) -> c_int {
     match self {
       OutputMode::Normal => ffi::TB_OUTPUT_NORMAL,
-      OutputMode::C256 => ffi::TB_OUTPUT_256,
-      OutputMode::C216 => ffi::TB_OUTPUT_216,
+      OutputMode::Color256 => ffi::TB_OUTPUT_256,
+      OutputMode::Color216 => ffi::TB_OUTPUT_216,
       OutputMode::Grayscale => ffi::TB_OUTPUT_GRAYSCALE,
     }
   }
-}
-
-impl Copy for OutputMode {
 }
 
 
@@ -168,35 +204,37 @@ impl Copy for OutputMode {
 
 
 pub struct Termbox {
-  is_open: bool,
+  #[allow(dead_code)]
+  uninstantiable: (),
 }
 
 impl Termbox {
   pub fn blit (&mut self, x: i32, y: i32, w: i32, h: i32, cells: &[Cell]) {
     unsafe {
       if w > 0 && h > 0 {
-        assert!(cells.len() >= (w * h) as uint);
+        assert!(cells.len() >= (w * h) as usize);
       }
-      if !self.is_open {
-        return;
-      }
+
       // check dimensions
-      let (buffer_width, buffer_height) = self.get_size();
+      let buffer_width = ffi::tb_width() as i32;
+      let buffer_height = ffi::tb_height() as i32;
       if w < 1 || h < 1 || x + w <= 0 || y + h <= 0 || x >= buffer_width || y >= buffer_height {
         return;
       }
+
       // get valid bounds
       let min_x = if x < 0 {-x} else {0};
       let min_y = if y < 0 {-y} else {0};
-      let max_x = std::cmp::min(x + w, buffer_width) - x;
-      let max_y = std::cmp::min(y + h, buffer_height) - y;
+      let max_x = min(x + w, buffer_width) - x;
+      let max_y = min(y + h, buffer_height) - y;
+
       // blit
       let dst_ptr = ffi::tb_cell_buffer();
-      let dst = std::slice::from_raw_mut_buf(&dst_ptr, (buffer_width * buffer_height) as uint);
-      for cy in std::iter::range(min_y, max_y) {
-        let mut src_index = (cy * w + min_x) as uint;
-        let mut dst_index = ((y + cy) * buffer_width + x + min_x) as uint;
-        for _ in std::iter::range(min_x, max_x) {
+      let dst = from_raw_parts_mut(dst_ptr, (buffer_width * buffer_height) as usize);
+      for cy in min_y..max_y {
+        let mut src_index = (cy * w + min_x) as usize;
+        let mut dst_index = ((y + cy) * buffer_width + x + min_x) as usize;
+        for _ in min_x..max_x {
           dst[dst_index] = cells[src_index];
           src_index += 1;
           dst_index += 1;
@@ -207,61 +245,65 @@ impl Termbox {
 
   pub fn change_cell (&mut self, x: i32, y: i32, ch: char, fg: u16, bg: u16) {
     unsafe {
-      if self.is_open {
-        ffi::tb_change_cell(x as c_int, y as c_int, ch as u32, fg, bg);
-      }
+      ffi::tb_change_cell(x as c_int, y as c_int, ch as u32, fg, bg);
     }
   }
 
   pub fn clear (&mut self) {
     unsafe {
-      if self.is_open {
-        ffi::tb_clear();
-      }
+      ffi::tb_clear();
     }
   }
 
-  pub fn close (&mut self) {
+  pub fn get_cell_buffer (&self) -> &[Cell] {
     unsafe {
-      if self.is_open {
-        self.is_open = false;
-        ffi::tb_shutdown();
-        _is_open.store(false, SeqCst);
-      }
+      let ptr = ffi::tb_cell_buffer() as *const Cell;
+      let width = ffi::tb_width() as usize;
+      let height = ffi::tb_height() as usize;
+      return from_raw_parts(ptr, width * height);
     }
   }
 
-  pub fn get_input_mode (&self) -> Option<InputMode> {
+  pub fn get_cell_buffer_mut (&self) -> &mut [Cell] {
     unsafe {
-      if self.is_open {
-        let mode = InputMode::from_c_int(ffi::tb_select_input_mode(ffi::TB_INPUT_CURRENT));
-        assert!(mode != None);
-        return mode;
+      let ptr = ffi::tb_cell_buffer();
+      let width = ffi::tb_width() as usize;
+      let height = ffi::tb_height() as usize;
+      return from_raw_parts_mut(ptr, width * height);
+    }
+  }
+
+  pub fn get_height (&self) -> i32 {
+    unsafe {
+      ffi::tb_height() as i32
+    }
+  }
+
+  pub fn get_input_mode (&self) -> Result<InputMode> {
+    unsafe {
+      let mode = ffi::tb_select_input_mode(ffi::TB_INPUT_CURRENT);
+      if let Some(mode) = InputMode::from_c_int(mode) {
+        return Ok(mode);
       } else {
-        return None;
+        return Err(Error::UnknownInputMode);
       }
     }
   }
 
-  pub fn get_output_mode (&self) -> Option<OutputMode> {
+  pub fn get_output_mode (&self) -> Result<OutputMode> {
     unsafe {
-      if self.is_open {
-        let mode = OutputMode::from_c_int(ffi::tb_select_output_mode(ffi::TB_OUTPUT_CURRENT));
-        assert!(mode != None);
-        return mode;
+      let mode = ffi::tb_select_output_mode(ffi::TB_OUTPUT_CURRENT);
+      if let Some(mode) = OutputMode::from_c_int(mode) {
+        return Ok(mode);
       } else {
-        return None;
+        return Err(Error::UnknownOutputMode);
       }
     }
   }
 
-  pub fn get_size (&self) -> (i32, i32) {
+  pub fn get_width (&self) -> i32 {
     unsafe {
-      if self.is_open {
-        (ffi::tb_width() as i32, ffi::tb_height() as i32)
-      } else {
-        (0, 0)
-      }
+      ffi::tb_width() as i32
     }
   }
 
@@ -269,247 +311,110 @@ impl Termbox {
     self.set_cursor(-1, -1);
   }
 
-  pub fn is_open (&self) -> bool {
-    self.is_open
-  }
-
-  pub fn new () -> Result<Termbox, String> {
+  pub fn new () -> Result<Termbox> {
     unsafe {
-      let was_open = _is_open.swap(true, SeqCst);
-      if was_open {
-        return Err(String::from_str("only one instance of Termbox is allowed"));
+      if _is_open.swap(true, Ordering::Acquire) {
+        return Err(Error::TerminalLocked);
       }
       match ffi::tb_init() {
         0 => {
-          return Ok(Termbox{is_open: true});
+          return Ok(Termbox{uninstantiable:()});
         },
         ffi::TB_EUNSUPPORTED_TERMINAL => {
-          _is_open.store(false, SeqCst);
-          return Err(String::from_str("unsupported terminal"));
+          _is_open.store(false, Ordering::Release);
+          return Err(Error::UnsupportedTerminal);
         },
         ffi::TB_EFAILED_TO_OPEN_TTY => {
-          _is_open.store(false, SeqCst);
-          return Err(String::from_str("failed to open tty"));
+          _is_open.store(false, Ordering::Release);
+          return Err(Error::FailedToOpenTty);
         },
         ffi::TB_EPIPE_TRAP_ERROR => {
-          _is_open.store(false, SeqCst);
-          return Err(String::from_str("pipe trap error"));
+          _is_open.store(false, Ordering::Release);
+          return Err(Error::PipeTrapError);
         },
-        result => {
-          _is_open.store(false, SeqCst);
-          return Err(format!("tb_init returned {}", result));
+        _ => {
+          _is_open.store(false, Ordering::Release);
+          return Err(Error::UnknownInitializationFailure);
+        },
+      }
+    }
+  }
+
+  pub fn peek_event (&mut self, timeout: u32) -> Result<Event> {
+    unsafe {
+      let mut event = zeroed();
+      let result = ffi::tb_peek_event(&mut event, timeout as c_int);
+      if result < 0 {
+        return Err(Error::PollFailed);
+      } else if result == 0 {
+        return Err(Error::Timeout);
+      } else {
+        match event.to_safe_event() {
+          Some(event) => { return Ok(event); },
+          None => { return Err(Error::UnknownEvent); },
         }
       }
     }
   }
 
-  pub fn peek_event (&mut self, timeout: u32) -> Option<Event> {
+  pub fn poll_event (&mut self) -> Result<Event> {
     unsafe {
-      if self.is_open {
-        let mut event = Default::default();
-        let result = ffi::tb_peek_event(&mut event, timeout as c_int);
-        if result < 0 {
-          panic!("tb_peek_event returned {}", result);
-        } else if result == 0 {
-          return None;
-        } else {
-          match event.to_safe_event() {
-            Some(event) => {
-              return Some(event);
-            },
-            None => {
-              panic!("invalid event");
-            },
-          }
-        }
+      let mut event = zeroed();
+      let result = ffi::tb_poll_event(&mut event);
+      if result <= 0 {
+        return Err(Error::PollFailed);
       } else {
-        return None;
-      }
-    }
-  }
-
-  pub fn poll_event (&mut self) -> Event {
-    unsafe {
-      if self.is_open {
-        let mut event = Default::default();
-        let result = ffi::tb_poll_event(&mut event);
-        if result <= 0 {
-          panic!("tb_poll_event returned {}", result);
-        } else {
-          match event.to_safe_event() {
-            Some(event) => {
-              return event;
-            },
-            None => {
-              panic!("invalid event");
-            },
-          }
+        match event.to_safe_event() {
+          Some(event) => { return Ok(event); },
+          None => { return Err(Error::UnknownEvent) },
         }
-      } else {
-        panic!("Termbox is closed");
       }
     }
   }
 
   pub fn present (&mut self) {
     unsafe {
-      if self.is_open {
-        ffi::tb_present();
-      }
+      ffi::tb_present();
     }
   }
 
   pub fn put_cell (&mut self, x: i32, y: i32, cell: Cell) {
     unsafe {
-      if self.is_open {
-        ffi::tb_put_cell(x as c_int, y as c_int, &cell);
-      }
+      ffi::tb_put_cell(x as c_int, y as c_int, &cell);
     }
   }
 
   pub fn set_clear_attributes (&mut self, fg: u16, bg: u16) {
     unsafe {
-      if self.is_open {
-        ffi::tb_set_clear_attributes(fg, bg);
-      }
+      ffi::tb_set_clear_attributes(fg, bg);
     }
   }
 
   pub fn set_cursor (&mut self, x: i32, y: i32) {
     unsafe {
-      if self.is_open {
-        ffi::tb_set_cursor(x as c_int, y as c_int);
-      }
+      ffi::tb_set_cursor(x as c_int, y as c_int);
     }
   }
 
   pub fn set_input_mode (&mut self, mode: InputMode) {
     unsafe {
-      if self.is_open {
-        let imode = mode.to_c_int();
-        let result = ffi::tb_select_input_mode(imode);
-        assert!(result == imode);
-      }
+      ffi::tb_select_input_mode(mode.to_c_int());
     }
   }
 
   pub fn set_output_mode (&mut self, mode: OutputMode) {
     unsafe {
-      if self.is_open {
-        let imode = mode.to_c_int();
-        let result = ffi::tb_select_output_mode(imode);
-        assert!(result == imode);
-      }
+      ffi::tb_select_output_mode(mode.to_c_int());
     }
   }
 }
 
 impl Drop for Termbox {
   fn drop (&mut self) {
-    self.close();
-  }
-}
-
-
-//
-// ffi
-//
-
-
-#[allow(non_camel_case_types)]
-pub mod ffi {
-  use std;
-  use std::default::Default;
-  use libc::c_int;
-
-  use super::{
-    Cell,
-    Event,
-    Mods,
-    KeySym,
-  };
-
-  // event kinds
-  pub const TB_EVENT_KEY:    u8 = 1;
-  pub const TB_EVENT_RESIZE: u8 = 2;
-
-  // event struct
-  #[repr(C)]
-  pub struct tb_event {
-    pub kind: u8,
-    pub mods: u8,
-    pub key: u16,
-    pub ch: u32,
-    pub w: i32,
-    pub h: i32,
-  }
-
-  impl tb_event {
-    pub fn to_safe_event (&self) -> Option<Event> {
-      match self.kind {
-        TB_EVENT_KEY => Some(Event::Key(KeySym {
-          mods: match Mods::from_bits(self.mods) { Some(mods) => mods, None => Mods::empty() },
-          key: self.key,
-          ch: match std::char::from_u32(self.ch) { Some(ch) => ch, None => 0 as char },
-        })),
-        TB_EVENT_RESIZE => Some(Event::Resize(self.w, self.h)),
-        _ => None
-      }
+    unsafe {
+      ffi::tb_shutdown();
+      _is_open.store(false, Ordering::Release);
     }
-  }
-
-  impl Copy for tb_event {
-  }
-
-  impl Default for tb_event {
-    fn default () -> tb_event {
-      tb_event {
-        kind: 0,
-        mods: 0,
-        key: 0,
-        ch: 0,
-        w: 0,
-        h: 0,
-      }
-    }
-  }
-
-  // init results
-  pub const TB_EUNSUPPORTED_TERMINAL: c_int = -1;
-  pub const TB_EFAILED_TO_OPEN_TTY:   c_int = -2;
-  pub const TB_EPIPE_TRAP_ERROR:      c_int = -3;
-
-  // input modes
-  pub const TB_INPUT_CURRENT: c_int = 0;
-  pub const TB_INPUT_ESC:     c_int = 1;
-  pub const TB_INPUT_ALT:     c_int = 2;
-
-  // output modes
-  pub const TB_OUTPUT_CURRENT:   c_int = 0;
-  pub const TB_OUTPUT_NORMAL:    c_int = 1;
-  pub const TB_OUTPUT_256:       c_int = 2;
-  pub const TB_OUTPUT_216:       c_int = 3;
-  pub const TB_OUTPUT_GRAYSCALE: c_int = 4;
-
-  // functions
-  #[link(name="termbox")]
-  extern "C" {
-    pub fn tb_blit (x: c_int, y: c_int, w: c_int, h: c_int, cells: *const Cell);
-    pub fn tb_cell_buffer () -> *mut Cell;
-    pub fn tb_change_cell (x: c_int, y: c_int, ch: u32, fg: u16, bg: u16);
-    pub fn tb_clear ();
-    pub fn tb_height () -> c_int;
-    pub fn tb_init () -> c_int;
-    pub fn tb_peek_event (event: *mut tb_event, timeout: c_int) -> c_int;
-    pub fn tb_poll_event (event: *mut tb_event) -> c_int;
-    pub fn tb_present ();
-    pub fn tb_put_cell (x: c_int, y: c_int, cell: *const Cell);
-    pub fn tb_select_input_mode (mode: c_int) -> c_int;
-    pub fn tb_select_output_mode (mode: c_int) -> c_int;
-    pub fn tb_set_clear_attributes (fg: u16, bg: u16);
-    pub fn tb_set_cursor (x: c_int, y: c_int);
-    pub fn tb_shutdown ();
-    pub fn tb_width () -> c_int;
   }
 }
 
