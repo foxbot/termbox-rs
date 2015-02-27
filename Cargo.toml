@@ -1,8 +1,8 @@
 [package]
 name = "termbox"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Daggerbot <daggerbot@gmail.com>"]
-description = "Safe binding to Termbox."
+description = "High level binding to Termbox."
 repository = "https://github.com/daggerbot/termbox.rs.git"
 license = "MIT"
 
