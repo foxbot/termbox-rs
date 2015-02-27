@@ -31,6 +31,8 @@ use libc::c_int;
 
 #[allow(dead_code)]
 mod ffi;
+#[cfg(test)]
+mod test;
 
 // global lock state
 static mut _is_open: AtomicBool = ATOMIC_BOOL_INIT;
@@ -317,7 +319,10 @@ impl Termbox {
       }
       match ffi::tb_init() {
         0 => {
-          return Ok(Termbox{uninstantiable:()});
+          let termbox = Termbox {
+            uninstantiable: (),
+          };
+          return Ok(termbox);
         },
         ffi::TB_EUNSUPPORTED_TERMINAL => {
           _is_open.store(false, Ordering::Release);
@@ -380,6 +385,16 @@ impl Termbox {
   pub fn put_cell (&mut self, x: i32, y: i32, cell: Cell) {
     unsafe {
       ffi::tb_put_cell(x as c_int, y as c_int, &cell);
+    }
+  }
+
+  pub fn put_str (&mut self, x: i32, y: i32, s: &str, fg: u16, bg: u16) {
+    unsafe {
+      let mut x = x;
+      for ch in s.chars() {
+        ffi::tb_change_cell(x as c_int, y as c_int, ch as u32, fg, bg);
+        x += 1;
+      }
     }
   }
 
