@@ -3,23 +3,23 @@
 // Project page: https://code.google.com/p/termbox/
 // This binding is subject to the terms of the original library.
 
-use std::char::from_u32;
-
 use libc::c_int;
 
-use ::{
-  Cell,
-  Event,
-  Mods,
-  KeySym,
-};
+// cell struct
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct tb_cell {
+  pub ch: u32,
+  pub fg: u16,
+  pub bg: u16,
+}
 
 // event kinds
 pub const TB_EVENT_KEY: u8 = 1;
 pub const TB_EVENT_RESIZE: u8 = 2;
 
 // event struct
-#[derive(Copy)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct tb_event {
   pub kind: u8,
@@ -28,20 +28,6 @@ pub struct tb_event {
   pub ch: u32,
   pub w: i32,
   pub h: i32,
-}
-
-impl tb_event {
-  pub fn to_safe_event (&self) -> Option<Event> {
-    match self.kind {
-      TB_EVENT_KEY => Some(Event::Key(KeySym {
-        mods: match Mods::from_bits(self.mods) { Some(mods) => mods, None => Mods::empty() },
-        key: self.key,
-        ch: match from_u32(self.ch) { Some(ch) => ch, None => 0 as char },
-      })),
-      TB_EVENT_RESIZE => Some(Event::Resize(self.w, self.h)),
-      _ => None
-    }
-  }
 }
 
 // init results
@@ -64,8 +50,8 @@ pub const TB_OUTPUT_GRAYSCALE: c_int = 4;
 // functions
 #[link(name="termbox")]
 extern "C" {
-  pub fn tb_blit (x: c_int, y: c_int, w: c_int, h: c_int, cells: *const Cell);
-  pub fn tb_cell_buffer () -> *mut Cell;
+  pub fn tb_blit (x: c_int, y: c_int, w: c_int, h: c_int, cells: *const tb_cell);
+  pub fn tb_cell_buffer () -> *mut tb_cell;
   pub fn tb_change_cell (x: c_int, y: c_int, ch: u32, fg: u16, bg: u16);
   pub fn tb_clear ();
   pub fn tb_height () -> c_int;
@@ -73,7 +59,7 @@ extern "C" {
   pub fn tb_peek_event (event: *mut tb_event, timeout: c_int) -> c_int;
   pub fn tb_poll_event (event: *mut tb_event) -> c_int;
   pub fn tb_present ();
-  pub fn tb_put_cell (x: c_int, y: c_int, cell: *const Cell);
+  pub fn tb_put_cell (x: c_int, y: c_int, cell: *const tb_cell);
   pub fn tb_select_input_mode (mode: c_int) -> c_int;
   pub fn tb_select_output_mode (mode: c_int) -> c_int;
   pub fn tb_set_clear_attributes (fg: u16, bg: u16);
