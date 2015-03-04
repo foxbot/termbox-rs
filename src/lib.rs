@@ -210,7 +210,7 @@ pub struct Termbox {
 }
 
 impl Termbox {
-  pub fn blit (&mut self, x: i32, y: i32, w: i32, h: i32, cells: &[Cell]) {
+  pub fn blit (&self, x: i32, y: i32, w: i32, h: i32, cells: &[Cell]) {
     unsafe {
       if w > 0 && h > 0 {
         assert!(cells.len() >= (w * h) as usize);
@@ -244,13 +244,13 @@ impl Termbox {
     }
   }
 
-  pub fn change_cell (&mut self, x: i32, y: i32, ch: char, fg: u16, bg: u16) {
+  pub fn change_cell (&self, x: i32, y: i32, ch: char, fg: u16, bg: u16) {
     unsafe {
       ffi::tb_change_cell(x as c_int, y as c_int, ch as u32, fg, bg);
     }
   }
 
-  pub fn clear (&mut self) {
+  pub fn clear (&self) {
     unsafe {
       ffi::tb_clear();
     }
@@ -308,7 +308,7 @@ impl Termbox {
     }
   }
 
-  pub fn hide_cursor (&mut self) {
+  pub fn hide_cursor (&self) {
     self.set_cursor(-1, -1);
   }
 
@@ -344,7 +344,7 @@ impl Termbox {
     }
   }
 
-  pub fn peek_event (&mut self, timeout: u32) -> Result<Event> {
+  pub fn peek_event (&self, timeout: u32) -> Result<Event> {
     unsafe {
       let mut event = zeroed();
       let result = ffi::tb_peek_event(&mut event, timeout as c_int);
@@ -361,7 +361,7 @@ impl Termbox {
     }
   }
 
-  pub fn poll_event (&mut self) -> Result<Event> {
+  pub fn poll_event (&self) -> Result<Event> {
     unsafe {
       let mut event = zeroed();
       let result = ffi::tb_poll_event(&mut event);
@@ -376,19 +376,19 @@ impl Termbox {
     }
   }
 
-  pub fn present (&mut self) {
+  pub fn present (&self) {
     unsafe {
       ffi::tb_present();
     }
   }
 
-  pub fn put_cell (&mut self, x: i32, y: i32, cell: Cell) {
+  pub fn put_cell (&self, x: i32, y: i32, cell: Cell) {
     unsafe {
       ffi::tb_put_cell(x as c_int, y as c_int, &cell);
     }
   }
 
-  pub fn put_str (&mut self, x: i32, y: i32, s: &str, fg: u16, bg: u16) {
+  pub fn put_str (&self, x: i32, y: i32, s: &str, fg: u16, bg: u16) {
     unsafe {
       let mut x = x;
       for ch in s.chars() {
@@ -398,25 +398,25 @@ impl Termbox {
     }
   }
 
-  pub fn set_clear_attributes (&mut self, fg: u16, bg: u16) {
+  pub fn set_clear_attributes (&self, fg: u16, bg: u16) {
     unsafe {
       ffi::tb_set_clear_attributes(fg, bg);
     }
   }
 
-  pub fn set_cursor (&mut self, x: i32, y: i32) {
+  pub fn set_cursor (&self, x: i32, y: i32) {
     unsafe {
       ffi::tb_set_cursor(x as c_int, y as c_int);
     }
   }
 
-  pub fn set_input_mode (&mut self, mode: InputMode) {
+  pub fn set_input_mode (&self, mode: InputMode) {
     unsafe {
       ffi::tb_select_input_mode(mode.to_c_int());
     }
   }
 
-  pub fn set_output_mode (&mut self, mode: OutputMode) {
+  pub fn set_output_mode (&self, mode: OutputMode) {
     unsafe {
       ffi::tb_select_output_mode(mode.to_c_int());
     }
