@@ -225,6 +225,24 @@ impl Termbox {
     }
   }
 
+  pub fn cell_buffer (&self) -> &[Cell] {
+    unsafe {
+      let ptr = ::ffi::tb_cell_buffer() as *const Cell;
+      let width = ::ffi::tb_width() as usize;
+      let height = ::ffi::tb_height() as usize;
+      return from_raw_parts(ptr, width * height);
+    }
+  }
+
+  pub fn cell_buffer_mut (&self) -> &mut [Cell] {
+    unsafe {
+      let ptr = ::ffi::tb_cell_buffer();
+      let width = ::ffi::tb_width() as usize;
+      let height = ::ffi::tb_height() as usize;
+      return from_raw_parts_mut(ptr, width * height);
+    }
+  }
+
   pub fn change_cell (&self, x: i32, y: i32, ch: char, fg: u16, bg: u16) {
     unsafe {
       ::ffi::tb_change_cell(x as c_int, y as c_int, ch as u32, fg, bg);
@@ -234,30 +252,6 @@ impl Termbox {
   pub fn clear (&self) {
     unsafe {
       ::ffi::tb_clear();
-    }
-  }
-
-  pub fn get_cell_buffer (&self) -> &[Cell] {
-    unsafe {
-      let ptr = ::ffi::tb_cell_buffer() as *const Cell;
-      let width = ::ffi::tb_width() as usize;
-      let height = ::ffi::tb_height() as usize;
-      return from_raw_parts(ptr, width * height);
-    }
-  }
-
-  pub fn get_cell_buffer_mut (&self) -> &mut [Cell] {
-    unsafe {
-      let ptr = ::ffi::tb_cell_buffer();
-      let width = ::ffi::tb_width() as usize;
-      let height = ::ffi::tb_height() as usize;
-      return from_raw_parts_mut(ptr, width * height);
-    }
-  }
-
-  pub fn get_height (&self) -> i32 {
-    unsafe {
-      ::ffi::tb_height() as i32
     }
   }
 
@@ -283,9 +277,9 @@ impl Termbox {
     }
   }
 
-  pub fn get_width (&self) -> i32 {
+  pub fn height (&self) -> i32 {
     unsafe {
-      ::ffi::tb_width() as i32
+      ::ffi::tb_height() as i32
     }
   }
 
@@ -400,6 +394,12 @@ impl Termbox {
   pub fn set_output_mode (&self, mode: OutputMode) {
     unsafe {
       ::ffi::tb_select_output_mode(mode.to_c_int());
+    }
+  }
+
+  pub fn width (&self) -> i32 {
+    unsafe {
+      ::ffi::tb_width() as i32
     }
   }
 }
