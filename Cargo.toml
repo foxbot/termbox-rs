@@ -1,10 +1,10 @@
 [package]
 name = "termbox"
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Daggerbot <daggerbot@gmail.com>"]
 description = "High level binding to Termbox."
 repository = "https://github.com/daggerbot/termbox.rs.git"
-license = "MIT"
+license = "CC0-1.0"
 
 [dependencies]
 bitflags = "*"
