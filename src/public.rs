@@ -34,7 +34,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 //
 
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Debug)]
 pub enum Error {
   FailedToOpenTty,
   PipeTrapError,
