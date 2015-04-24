@@ -5,8 +5,6 @@
 #![crate_name="termbox"]
 #![crate_type="lib"]
 
-#![feature(core)]
-
 #[macro_use]
 extern crate bitflags;
 extern crate libc;
