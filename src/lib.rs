@@ -9,7 +9,11 @@ extern crate termbox_sys as ffi;
 extern crate libc;
 extern crate num;
 
+pub mod keys;
+
 mod internal;
+
+pub use self::keys::*;
 
 use std::char::from_u32;
 use std::error::Error;
@@ -34,7 +38,6 @@ use internal::Lock;
 pub type Attribute = u16;
 pub type Cell = ffi::RawCell;
 pub type Coord = c_int;
-pub type Key = u16;
 pub type Time = c_int;
 
 
