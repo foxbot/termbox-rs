@@ -5,6 +5,7 @@ authors = ["Daggerbot <daggerbot@gmail.com>"]
 description = "High level binding for Termbox."
 repository = "https://github.com/daggerbot/termbox-rs"
 license = "Zlib"
+documentation = "http://daggerbot.github.io/doc/termbox-rs/termbox/index.html"
 
 [dependencies]
 libc = "*"
