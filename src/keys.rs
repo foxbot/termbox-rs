@@ -2,6 +2,7 @@
 // This software is available under the terms of the zlib license.
 // See COPYING.TXT for more information.
 
+/// Represents a key pressed by the user.
 pub type Key = u16;
 
 pub const KEY_F1: Key = ::ffi::TB_KEY_F1;
