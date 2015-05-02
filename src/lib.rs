@@ -47,6 +47,7 @@ pub type Time = c_int;
 pub enum Event {
   Key(KeyEvent),
   Resize(ResizeEvent),
+  Mouse(MouseEvent),
 }
 
 impl Event {
@@ -54,6 +55,7 @@ impl Event {
     match raw.etype {
       ffi::TB_EVENT_KEY => Some(Event::Key(KeyEvent::from_raw(raw).unwrap())),
       ffi::TB_EVENT_RESIZE => Some(Event::Resize(ResizeEvent::from_raw(raw).unwrap())),
+      ffi::TB_EVENT_MOUSE => Some(Event::Mouse(MouseEvent::from_raw(raw).unwrap())),
       _ => None,
     }
   }
@@ -160,6 +162,63 @@ impl KeyEvent {
         key: raw.key,
         ch: from_u32(raw.ch),
         alt: (raw.emod & ffi::TB_MOD_ALT) != 0,
+      })
+    } else {
+      None
+    }
+  }
+}
+
+
+//
+// MouseButton
+//
+
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MouseButton {
+  Left,
+  Right,
+  Middle,
+  Release,
+  WheelUp,
+  WheelDown,
+}
+
+impl MouseButton {
+  fn from_raw (raw: u16) -> Option<MouseButton> {
+    match raw {
+      ffi::TB_KEY_MOUSE_LEFT => Some(MouseButton::Left),
+      ffi::TB_KEY_MOUSE_RIGHT => Some(MouseButton::Right),
+      ffi::TB_KEY_MOUSE_MIDDLE => Some(MouseButton::Middle),
+      ffi::TB_KEY_MOUSE_RELEASE => Some(MouseButton::Release),
+      ffi::TB_KEY_MOUSE_WHEEL_UP => Some(MouseButton::WheelUp),
+      ffi::TB_KEY_MOUSE_WHEEL_DOWN => Some(MouseButton::WheelDown),
+      _ => None,
+    }
+  }
+}
+
+
+//
+// MouseEvent
+//
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct MouseEvent {
+  pub button: MouseButton,
+  pub x: Coord,
+  pub y: Coord,
+}
+
+impl MouseEvent {
+  fn from_raw (raw: ffi::RawEvent) -> Option<MouseEvent> {
+    if raw.etype == ffi::TB_EVENT_MOUSE {
+      Some(MouseEvent {
+        button: MouseButton::from_raw(raw.key).unwrap(),
+        x: NumCast::from(raw.x).unwrap(),
+        y: NumCast::from(raw.y).unwrap(),
       })
     } else {
       None
