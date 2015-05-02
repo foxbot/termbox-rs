@@ -428,6 +428,16 @@ impl Termbox {
     }
   }
 
+  pub fn put_str (&mut self, x: Coord, y: Coord, msg: &str, fg: Attribute, bg: Attribute) {
+    unsafe {
+      let mut x = x;
+      for ch in msg.chars() {
+        ffi::tb_change_cell(x, y, ch as u32, fg, bg);
+        x += 1;
+      }
+    }
+  }
+
   pub fn set_clear_attributes (&mut self, fg: Attribute, bg: Attribute) {
     unsafe {
       ffi::tb_set_clear_attributes(fg, bg);
