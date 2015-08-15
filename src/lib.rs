@@ -46,12 +46,8 @@
 //! }
 //! ~~~
 
-#![crate_name="termbox"]
-#![crate_type="lib"]
-
 extern crate termbox_sys as ffi;
-extern crate libc;
-extern crate num;
+extern crate mm_numeric as numeric;
 
 /// Contains the `Attribute` type and attribute constants.
 pub mod attributes;
@@ -63,20 +59,19 @@ mod internal;
 pub use self::attributes::*;
 pub use self::keys::*;
 
-use std::char::from_u32;
-use std::error::Error;
+use std::char;
+use std::error;
 use std::fmt::{
+  self,
   Display,
   Formatter,
 };
-use std::mem::uninitialized;
-use std::slice::{
-  from_raw_parts,
-  from_raw_parts_mut,
-};
+use std::mem;
+use std::os::raw::c_int;
+use std::result;
+use std::slice;
 
-use libc::c_int;
-use num::{
+use numeric::{
   CheckedMul,
   NumCast,
 };
@@ -99,9 +94,59 @@ pub type Cell = ffi::RawCell;
 /// Integral type used to represent coordinates in cell space.
 pub type Coord = c_int;
 
+pub type Result<T> = result::Result<T, Error>;
+
 /// Integral type used to define a duration of time in milliseconds.
 /// This is used by `Termbox::peek_event`.
 pub type Time = c_int;
+
+
+//
+// Error
+//
+
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Error {
+  Locked,
+  UnsupportedTerminal,
+  FailedToOpenTty,
+  PipeTrapError,
+}
+
+impl Error {
+  pub fn as_str (self) -> &'static str {
+    match self {
+      Error::Locked => "locked",
+      Error::UnsupportedTerminal => "unsupported terminal",
+      Error::FailedToOpenTty => "failed to open tty",
+      Error::PipeTrapError => "pipe trap error",
+    }
+  }
+}
+
+impl Error {
+  fn from_raw (raw: c_int) -> Option<Error> {
+    match raw {
+      ffi::TB_EUNSUPPORTED_TERMINAL => Some(Error::UnsupportedTerminal),
+      ffi::TB_EFAILED_TO_OPEN_TTY => Some(Error::FailedToOpenTty),
+      ffi::TB_EPIPE_TRAP_ERROR => Some(Error::PipeTrapError),
+      _ => None,
+    }
+  }
+}
+
+impl Display for Error {
+  fn fmt (&self, f: &mut Formatter) -> fmt::Result {
+    f.write_str(self.as_str())
+  }
+}
+
+impl error::Error for Error {
+  fn description (&self) -> &str {
+    self.as_str()
+  }
+}
 
 
 //
@@ -130,54 +175,6 @@ impl Event {
       ffi::TB_EVENT_MOUSE => Some(Event::Mouse(MouseEvent::from_raw(raw).unwrap())),
       _ => None,
     }
-  }
-}
-
-
-//
-// InitError
-//
-
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum InitError {
-  Locked,
-  UnsupportedTerminal,
-  FailedToOpenTty,
-  PipeTrapError,
-}
-
-impl InitError {
-  pub fn as_str (self) -> &'static str {
-    match self {
-      InitError::Locked => "locked",
-      InitError::UnsupportedTerminal => "unsupported terminal",
-      InitError::FailedToOpenTty => "failed to open tty",
-      InitError::PipeTrapError => "pipe trap error",
-    }
-  }
-}
-
-impl InitError {
-  fn from_raw (raw: c_int) -> Option<InitError> {
-    match raw {
-      ffi::TB_EUNSUPPORTED_TERMINAL => Some(InitError::UnsupportedTerminal),
-      ffi::TB_EFAILED_TO_OPEN_TTY => Some(InitError::FailedToOpenTty),
-      ffi::TB_EPIPE_TRAP_ERROR => Some(InitError::PipeTrapError),
-      _ => None,
-    }
-  }
-}
-
-impl Display for InitError {
-  fn fmt (&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-    f.write_str(self.as_str())
-  }
-}
-
-impl Error for InitError {
-  fn description (&self) -> &str {
-    self.as_str()
   }
 }
 
@@ -237,7 +234,7 @@ impl KeyEvent {
     if raw.etype == ffi::TB_EVENT_KEY {
       Some(KeyEvent {
         key: raw.key,
-        ch: from_u32(raw.ch),
+        ch: char::from_u32(raw.ch),
         alt: (raw.emod & ffi::TB_MOD_ALT) != 0,
       })
     } else {
@@ -394,7 +391,7 @@ impl Termbox {
     unsafe {
       let uwidth: usize = NumCast::from(w).unwrap();
       let uheight: usize = NumCast::from(h).unwrap();
-      let min_len = CheckedMul::checked_mul(&uwidth, &uheight).unwrap();
+      let min_len = CheckedMul::mul(uwidth, uheight).unwrap();
       assert!(cells.len() >= min_len);
       ffi::tb_blit(x, y, w, h, &cells[0]);
     }
@@ -405,9 +402,9 @@ impl Termbox {
     unsafe {
       let w: usize = NumCast::from(ffi::tb_width()).unwrap();
       let h: usize = NumCast::from(ffi::tb_height()).unwrap();
-      let len = CheckedMul::checked_mul(&w, &h).unwrap();
+      let len = CheckedMul::mul(w, h).unwrap();
       let ptr = ffi::tb_cell_buffer() as *const Cell;
-      return from_raw_parts(ptr, len);
+      return slice::from_raw_parts(ptr, len);
     }
   }
 
@@ -416,9 +413,9 @@ impl Termbox {
     unsafe {
       let w: usize = NumCast::from(ffi::tb_width()).unwrap();
       let h: usize = NumCast::from(ffi::tb_height()).unwrap();
-      let len = CheckedMul::checked_mul(&w, &h).unwrap();
+      let len = CheckedMul::mul(w, h).unwrap();
       let ptr = ffi::tb_cell_buffer();
-      return from_raw_parts_mut(ptr, len);
+      return slice::from_raw_parts_mut(ptr, len);
     }
   }
 
@@ -468,17 +465,17 @@ impl Termbox {
   }
 
   /// Locks the terminal to an instance of `Termbox`. Only one instance may exist in a process.
-  pub fn open () -> Result<Termbox, InitError> {
+  pub fn open () -> Result<Termbox> {
     unsafe {
       let lock;
       match Lock::acquire() {
         Some(l) => { lock = l; },
-        None => { return Err(InitError::Locked); },
+        None => { return Err(Error::Locked); },
       }
 
       match ffi::tb_init() {
         0 => { return Ok(Termbox { lock: lock }); },
-        n => { return Err(InitError::from_raw(n).unwrap()); },
+        n => { return Err(Error::from_raw(n).unwrap()); },
       }
     }
   }
@@ -496,7 +493,7 @@ impl Termbox {
   /// events that have already been received without waiting.
   pub fn peek_event (&mut self, timeout: Time) -> Option<Event> {
     unsafe {
-      let mut raw: ffi::RawEvent = uninitialized();
+      let mut raw: ffi::RawEvent = mem::uninitialized();
       let result = ffi::tb_peek_event(&mut raw, timeout);
 
       if result < 0 {
@@ -512,7 +509,7 @@ impl Termbox {
   /// Waits for an input event and returns it.
   pub fn poll_event (&mut self) -> Event {
     unsafe {
-      let mut raw: ffi::RawEvent = uninitialized();
+      let mut raw: ffi::RawEvent = mem::uninitialized();
       let result = ffi::tb_poll_event(&mut raw);
 
       if result <= 0 {
