@@ -8,5 +8,5 @@ license = "Zlib"
 documentation = "http://daggerbot.github.io/doc/termbox-rs/termbox/index.html"
 
 [dependencies]
-mm_numeric = { git = "https://github.com/daggerbot/mm_numeric" }
+aurum-numeric = { git = "https://github.com/daggerbot/aurum-numeric" }
 termbox-sys = "*"
