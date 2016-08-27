@@ -1,6 +1,6 @@
 [package]
 name = "termbox"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Daggerbot <daggerbot@gmail.com>"]
 description = "High level binding for Termbox."
 repository = "https://github.com/daggerbot/termbox-rs"
@@ -8,5 +8,5 @@ license = "Zlib"
 documentation = "http://daggerbot.github.io/doc/termbox-rs/termbox/index.html"
 
 [dependencies]
-aurum-numeric = "0.1.1"
-termbox-sys = "0.2.8"
+aurum-numeric = "0.1.3"
+termbox-sys = "0.2.9"
