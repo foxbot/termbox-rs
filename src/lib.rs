@@ -46,8 +46,8 @@
 //! }
 //! ~~~
 
-extern crate aurum_numeric;
 extern crate termbox_sys as ffi;
+extern crate try_from;
 
 /// Contains the `Attribute` type and attribute constants.
 pub mod attributes;
@@ -71,7 +71,7 @@ use std::os::raw::c_int;
 use std::result;
 use std::slice;
 
-use aurum_numeric::CheckedFrom;
+use try_from::TryFrom;
 
 use internal::Lock;
 
@@ -289,8 +289,8 @@ impl MouseEvent {
     if raw.etype == ffi::TB_EVENT_MOUSE {
       Some(MouseEvent {
         button: MouseButton::from_raw(raw.key).unwrap(),
-        x: CheckedFrom::checked_from(raw.x).unwrap(),
-        y: CheckedFrom::checked_from(raw.y).unwrap(),
+        x: Coord::try_from(raw.x).unwrap(),
+        y: Coord::try_from(raw.y).unwrap(),
       })
     } else {
       None
@@ -359,8 +359,8 @@ impl ResizeEvent {
   fn from_raw (raw: ffi::RawEvent) -> Option<ResizeEvent> {
     if raw.etype == ffi::TB_EVENT_RESIZE {
       Some(ResizeEvent {
-        w: CheckedFrom::checked_from(raw.w).unwrap(),
-        h: CheckedFrom::checked_from(raw.h).unwrap(),
+        w: Coord::try_from(raw.w).unwrap(),
+        h: Coord::try_from(raw.h).unwrap(),
       })
     } else {
       None
@@ -386,8 +386,8 @@ impl Termbox {
   /// Copies a rectangular region of cells from a slice to the output buffer.
   pub fn blit (&mut self, x: Coord, y: Coord, w: Coord, h: Coord, cells: &[Cell]) {
     unsafe {
-      let uwidth: usize = CheckedFrom::checked_from(w).unwrap();
-      let uheight: usize = CheckedFrom::checked_from(h).unwrap();
+      let uwidth = usize::try_from(w).unwrap();
+      let uheight = usize::try_from(h).unwrap();
       let min_len = uwidth.checked_mul(uheight).unwrap();
       assert!(cells.len() >= min_len);
       ffi::tb_blit(x, y, w, h, &cells[0]);
@@ -397,8 +397,8 @@ impl Termbox {
   /// Returns a slice representing the output buffer.
   pub fn cell_buffer<'a> (&'a self) -> &'a [Cell] {
     unsafe {
-      let w: usize = CheckedFrom::checked_from(ffi::tb_width()).unwrap();
-      let h: usize = CheckedFrom::checked_from(ffi::tb_height()).unwrap();
+      let w = usize::try_from(ffi::tb_width()).unwrap();
+      let h = usize::try_from(ffi::tb_height()).unwrap();
       let len = w.checked_mul(h).unwrap();
       let ptr = ffi::tb_cell_buffer() as *const Cell;
       return slice::from_raw_parts(ptr, len);
@@ -408,8 +408,8 @@ impl Termbox {
   /// Returns a mutable slice representing the output buffer.
   pub fn cell_buffer_mut<'a> (&'a mut self) -> &'a mut [Cell] {
     unsafe {
-      let w: usize = CheckedFrom::checked_from(ffi::tb_width()).unwrap();
-      let h: usize = CheckedFrom::checked_from(ffi::tb_height()).unwrap();
+      let w = usize::try_from(ffi::tb_width()).unwrap();
+      let h = usize::try_from(ffi::tb_height()).unwrap();
       let len = w.checked_mul(h).unwrap();
       let ptr = ffi::tb_cell_buffer();
       return slice::from_raw_parts_mut(ptr, len);

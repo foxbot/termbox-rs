@@ -9,7 +9,7 @@ use std::sync::atomic::{
 };
 
 // Only allow Termbox to be used from one thread.
-static mut _locked: AtomicBool = ATOMIC_BOOL_INIT;
+static mut LOCK_FLAG: AtomicBool = ATOMIC_BOOL_INIT;
 
 
 //
@@ -24,7 +24,7 @@ pub struct Lock {
 impl Lock {
   pub fn acquire () -> Option<Lock> {
     unsafe {
-      if _locked.swap(true, Ordering::SeqCst) {
+      if LOCK_FLAG.swap(true, Ordering::Acquire) {
         None
       } else {
         Some(Lock { _uninstantiable: () })
@@ -36,7 +36,7 @@ impl Lock {
 impl Drop for Lock {
   fn drop (&mut self) {
     unsafe {
-      _locked.store(false, Ordering::SeqCst);
+      LOCK_FLAG.store(false, Ordering::Release);
     }
   }
 }
