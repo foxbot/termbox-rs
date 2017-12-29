@@ -488,7 +488,7 @@ impl Termbox {
   /// Waits up to `timeout` milliseconds for an event. If an event is received, that event is
   /// returned. Otherwise, `None` is returned. A `timeout` of zero can be specified to poll for
   /// events that have already been received without waiting.
-  pub fn peek_event (&mut self, timeout: Time) -> Option<Event> {
+  pub fn peek_event (&self, timeout: Time) -> Option<Event> {
     unsafe {
       let mut raw: ffi::RawEvent = mem::uninitialized();
       let result = ffi::tb_peek_event(&mut raw, timeout);
@@ -504,7 +504,7 @@ impl Termbox {
   }
 
   /// Waits for an input event and returns it.
-  pub fn poll_event (&mut self) -> Event {
+  pub fn poll_event (&self) -> Event {
     unsafe {
       let mut raw: ffi::RawEvent = mem::uninitialized();
       let result = ffi::tb_poll_event(&mut raw);
